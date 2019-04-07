@@ -1,237 +1,189 @@
-"""
-This script applies to IOB2 or IOBES tagging scheme.
-If you are using a different scheme, please convert to IOB2 or IOBES.
-
-IOB2:
-- B = begin, 
-- I = inside but not the first, 
-- O = outside
-
-e.g. 
-John   lives in New   York  City  .
-B-PER  O     O  B-LOC I-LOC I-LOC O
-
-IOBES:
-- B = begin, 
-- E = end, 
-- S = singleton, 
-- I = inside but not the first or the last, 
-- OUT = outside
-
-e.g.
-John   lives in New   York  City  .
-S-PER  O     O  B-LOC I-LOC E-LOC O
-
-prefix: IOBES
-chunk_type: PER, LOC, etc.
-"""
-from __future__ import division, print_function, unicode_literals
-
-import sys
+# 'PADDING_LABEL', 'I-PER', 'E-MISC', 'OUT', 'I-MISC', 'S-MISC',
+# 'B-PER', 'B-LOC', 'B-MISC', 'B-ORG', 'S-ORG', 'S-LOC', 'E-ORG', 'S-PER', 'E-LOC', 'I-LOC', 'I-ORG', 'E-PER'
 from collections import defaultdict
+import unittest
 
-def split_tag(chunk_tag):
-    """
-    split chunk tag into IOBES prefix and chunk_type
-    e.g. 
-    B-PER -> (B, PER)
-    O -> (O, None)
-    """
-    if chunk_tag == 'OUT':
-        return 'OUT', None
-    return chunk_tag.split('-', maxsplit=1)
+class ConllEval:
 
-def is_chunk_end(prev_tag, tag):
-    """
-    check if the previous chunk ended between the previous and current word
-    e.g. 
-    (B-PER, I-PER) -> False
-    (B-LOC, OUT)  -> True
+    def __init__(self, tag2idx, idx2tag):
+        self.tag2idx = tag2idx
+        self.idx2tag = idx2tag
 
-    Note: in case of contradicting tags, e.g. (B-PER, I-LOC)
-    this is considered as (B-PER, B-LOC)
-    """
-    prefix1, chunk_type1 = split_tag(prev_tag)
-    prefix2, chunk_type2 = split_tag(tag)
+    def split(self, chunk_tag):
+        if chunk_tag == self.tag2idx['OUT']:
+            return None, 'OUT'
+        if chunk_tag == self.tag2idx['PADDING_LABEL']:
+            return None, 'PAD'
+        return self.idx2tag[chunk_tag].split('-', maxsplit=1)
 
-    if prefix1 == 'OUT':
-        return False
-    if prefix2 == 'OUT':
-        return prefix1 != 'OUT'
+    def count_chunks(self, true_seqs, pred_seqs, padding_label):
+        """
+        true_seqs: a list of true tags
+        pred_seqs: a list of predicted tags
+        padding_label: an idx of padding
 
-    if chunk_type1 != chunk_type2:
-        return True
+        return:
+        correct_chunks: a dict (counter),
+                        key = chunk types,
+                        value = number of correctly identified chunks per type
+        true_chunks:    a dict, number of true chunks per type
+        pred_chunks:    a dict, number of identified chunks per type
+        """
+        correct_chunks = defaultdict(int)
+        true_chunks = defaultdict(int)
+        pred_chunks = defaultdict(int)
 
-    return prefix2 in ['B', 'S'] or prefix1 in ['E', 'S']
+        prev_true_tag, prev_pred_tag = self.tag2idx['OUT'], self.tag2idx['OUT']
+        correct_chunk = None
+        stack_of_true = []
+        stack_of_pred = []
 
-def is_chunk_start(prev_tag, tag):
-    """
-    check if a new chunk started between the previous and current word
-    """
-    prefix1, chunk_type1 = split_tag(prev_tag)
-    prefix2, chunk_type2 = split_tag(tag)
+        for true_tag, pred_tag in zip(true_seqs, pred_seqs):
 
-    if prefix2 == 'OUT':
-        return False
-    if prefix1 == 'OUT':
-        return prefix2 != 'OUT'
+            if true_tag == padding_label:
+                continue
 
-    if chunk_type1 != chunk_type2:
-        return True
+            true_prefix, true_type = self.split(true_tag)
+            pred_prefix, pred_type = self.split(pred_tag)
 
-    return prefix2 in ['B', 'S'] or prefix1 in ['E', 'S']
+            if pred_type == 'PAD':
+                pred_chunks[pred_type] += 1
 
+            if true_prefix == 'B':
+                stack_of_true.append(true_type)
+            if pred_prefix == 'B':
+                stack_of_pred.append(pred_type)
 
-def calc_metrics(tp, p, t, percent=True):
-    """
-    compute overall precision, recall and FB1 (default values are 0.0)
-    if percent is True, return 100 * original decimal value
-    """
-    precision = tp / p if p else 0
-    recall = tp / t if t else 0
-    fb1 = 2 * precision * recall / (precision + recall) if precision + recall else 0
-    if percent:
-        return 100 * precision, 100 * recall, 100 * fb1
-    else:
-        return precision, recall, fb1
+            is_finished_true = true_prefix == 'E' and stack_of_true[-1] == true_type
+            is_finished_pred = pred_prefix == 'E' and len(stack_of_pred) > 0 and stack_of_pred[-1] == pred_type
 
+            if is_finished_true:
+                stack_of_true.pop(-1)
+                true_chunks[true_type] += 1
+            if is_finished_pred:
+                stack_of_pred.pop(-1)
+                pred_chunks[pred_type] += 1
+            if is_finished_true and is_finished_pred and true_type == pred_type:
+                correct_chunks[true_type] += 1
 
-def count_chunks(true_seqs, pred_seqs, padding_label):
-    """
-    true_seqs: a list of true tags
-    pred_seqs: a list of predicted tags
+            if true_type == 'OUT':
+                for type in stack_of_true:
+                    true_chunks[type] += 1
+                stack_of_true = []
+                true_chunks[true_type] += 1
+            if pred_type == 'OUT':
+                for type in stack_of_pred:
+                    pred_chunks[type] += 1
+                stack_of_pred = []
+                pred_chunks[pred_type] += 1
+            if true_type == 'OUT' and pred_type == 'OUT':
+                correct_chunks[true_type] += 1
 
-    return: 
-    correct_chunks: a dict (counter), 
-                    key = chunk types, 
-                    value = number of correctly identified chunks per type
-    true_chunks:    a dict, number of true chunks per type
-    pred_chunks:    a dict, number of identified chunks per type
+            if true_prefix == 'S':
+                true_chunks[true_type] += 1
+            if pred_prefix == 'S':
+                pred_chunks[pred_type] += 1
+            if true_prefix == 'S' and pred_prefix == 'S' and true_type == pred_type:
+                correct_chunks[true_type] += 1
+        return list(correct_chunks.items()), list(true_chunks.items()), list(pred_chunks.items())
 
-    correct_counts, true_counts, pred_counts: similar to above, but for tags
-    """
-    correct_chunks = defaultdict(int)
-    true_chunks = defaultdict(int)
-    pred_chunks = defaultdict(int)
-
-    correct_counts = defaultdict(int)
-    true_counts = defaultdict(int)
-    pred_counts = defaultdict(int)
-
-    prev_true_tag, prev_pred_tag = 'OUT', 'OUT'
-    correct_chunk = None
-
-    for true_tag, pred_tag in zip(true_seqs, pred_seqs):
-        if true_tag == padding_label or pred_tag == padding_label:
-            continue
-        if true_tag == pred_tag:
-            correct_counts[true_tag] += 1
-        true_counts[true_tag] += 1
-        pred_counts[pred_tag] += 1
-
-        _, true_type = split_tag(true_tag)
-        _, pred_type = split_tag(pred_tag)
-
-        if correct_chunk is not None:
-            true_end = is_chunk_end(prev_true_tag, true_tag)
-            pred_end = is_chunk_end(prev_pred_tag, pred_tag)
-
-            if pred_end and true_end:
-                correct_chunks[correct_chunk] += 1
-                correct_chunk = None
-            elif pred_end != true_end or true_type != pred_type:
-                correct_chunk = None
-
-        true_start = is_chunk_start(prev_true_tag, true_tag)
-        pred_start = is_chunk_start(prev_pred_tag, pred_tag)
-
-        if true_start and pred_start and true_type == pred_type:
-            correct_chunk = true_type
-        if true_start:
-            true_chunks[true_type] += 1
-        if pred_start:
-            pred_chunks[pred_type] += 1
-
-        prev_true_tag, prev_pred_tag = true_tag, pred_tag
-    if correct_chunk is not None:
-        correct_chunks[correct_chunk] += 1
-
-    return correct_chunks, true_chunks, pred_chunks, correct_counts, true_counts, pred_counts
+    @staticmethod
+    def get_result(correct_chunks, true_chunks, pred_chunks):
+        tp, tn, fp, fn = 0, 0, 0, 0
+        chunk_types = set([t for t, _ in true_chunks] + [t for t, _ in pred_chunks])
+        sum_correct_chunks = sum([count for _, count in correct_chunks])
+        for chunk_type in chunk_types:
+            tp += correct_chunks[chunk_type]
+            tn += (sum_correct_chunks - correct_chunks[chunk_type])
+            fp += (pred_chunks[chunk_type] - correct_chunks[chunk_type])
+            fn += (true_chunks[chunk_type] - correct_chunks[chunk_type])
+        acc = (tp + tn) / (tp + tn + fp + fn)
+        prec = tp / (tp + fp)
+        recall = tp / (tp + fn)
+        f1 = 2 * prec * recall / (prec + recall) if tp != 0 else 0
+        return acc, prec, recall, f1
 
 
-def get_result(correct_chunks, true_chunks, pred_chunks,
-    correct_counts, true_counts, pred_counts, verbose=True):
-    """
-    if verbose, print overall performance, as well as preformance per chunk type;
-    otherwise, simply return overall prec, rec, f1 scores
-    """
-    # sum counts
-    sum_correct_chunks = sum(correct_chunks.values())
-    sum_true_chunks = sum(true_chunks.values())
-    sum_pred_chunks = sum(pred_chunks.values())
+class TestEvalMethods(unittest.TestCase):
+    def setUp(self):
+        self.tag2idx = {'PADDING_LABEL': 0, 'S-ORG': 1, 'S-PER': 2, 'E-MISC': 3, 'E-ORG': 4, 'E-LOC': 5, 'I-LOC': 6,
+                   'B-PER': 7, 'E-PER': 8, 'OUT': 9, 'B-ORG': 10, 'S-MISC': 11, 'B-MISC': 12, 'B-LOC': 13, 'I-ORG': 14,
+                   'S-LOC': 15, 'I-MISC': 16, 'I-PER': 17}
+        self.idx2tag = ['PADDING_LABEL', 'S-ORG', 'S-PER', 'E-MISC', 'E-ORG', 'E-LOC', 'I-LOC', 'B-PER', 'E-PER', 'OUT',
+                   'B-ORG', 'S-MISC', 'B-MISC', 'B-LOC', 'I-ORG', 'S-LOC', 'I-MISC', 'I-PER']
+        self.eval = ConllEval(self.tag2idx, self.idx2tag)
 
-    sum_correct_counts = sum(correct_counts.values())
-    sum_true_counts = sum(true_counts.values())
+    def test_count_chunks1(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT'], self.tag2idx['PADDING_LABEL']]
+        correct_answer = ([('PER', 1), ('OUT', 1)], [('PER', 1), ('OUT', 2)], [('PER', 1), ('OUT', 1), ('PAD', 1)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
-    nonO_correct_counts = sum(v for k, v in correct_counts.items() if k != 'O')
-    nonO_true_counts = sum(v for k, v in true_counts.items() if k != 'O')
+    def test_count_chanks2(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['OUT'], self.tag2idx['OUT'], self.tag2idx['PADDING_LABEL']]
+        correct_answer = ([('OUT', 1)], [('PER', 1), ('OUT', 2)], [('PER', 1), ('OUT', 2), ('PAD', 1)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
-    chunk_types = sorted(list(set(list(true_chunks) + list(pred_chunks))))
+    def test_count_chanks3(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['I-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['I-PER'], self.tag2idx['E-PER'], self.tag2idx['PADDING_LABEL']]
+        correct_answer = ([('PER', 1)], [('PER', 1), ('OUT', 1)], [('PER', 1), ('PAD', 1)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
-    # compute overall precision, recall and FB1 (default values are 0.0)
-    prec, rec, f1 = calc_metrics(sum_correct_chunks, sum_pred_chunks, sum_true_chunks)
-    res = (prec, rec, f1)
-    if not verbose:
-        return res
+    def test_count_chanks4(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['I-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['I-PER'], self.tag2idx['OUT'], self.tag2idx['OUT']]
+        correct_answer = ([('OUT', 1)], [('PER', 1), ('OUT', 1)], [('PER', 1), ('OUT', 2)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
-    # print overall performance, and performance per chunk type
-    
-    print("processed %i tokens with %i phrases; " % (sum_true_counts, sum_true_chunks), end='')
-    print("found: %i phrases; correct: %i.\n" % (sum_pred_chunks, sum_correct_chunks), end='')
-        
-    print("accuracy: %6.2f%%; (non-O)" % (100*nonO_correct_counts/nonO_true_counts))
-    print("accuracy: %6.2f%%; " % (100*sum_correct_counts/sum_true_counts), end='')
-    print("precision: %6.2f%%; recall: %6.2f%%; FB1: %6.2f" % (prec, rec, f1))
+    def test_count_chanks5(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['I-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['OUT'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        correct_answer = ([('OUT', 1)], [('PER', 1), ('OUT', 1)], [('PER', 1), ('OUT', 2)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
-    # for each chunk type, compute precision, recall and FB1 (default values are 0.0)
-    for t in chunk_types:
-        prec, rec, f1 = calc_metrics(correct_chunks[t], pred_chunks[t], true_chunks[t])
-        print("%17s: " %t , end='')
-        print("precision: %6.2f%%; recall: %6.2f%%; FB1: %6.2f" %
-                    (prec, rec, f1), end='')
-        print("  %d" % pred_chunks[t])
+    def test_count_chanks6(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        correct_answer = ([('PER', 2), ('OUT', 1)], [('PER', 2), ('OUT', 1)], [('PER', 2), ('OUT', 1)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
-    return res
-    # you can generate LaTeX output for tables like in
-    # http://cnts.uia.ac.be/conll2003/ner/example.tex
-    # but I'm not implementing this
+    def test_count_chanks7(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['OUT'], self.tag2idx['OUT']]
+        correct_answer = ([('PER', 1), ('OUT', 1)], [('PER', 2), ('OUT', 1)], [('PER', 2), ('OUT', 2)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
+    def test_count_chanks8(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['OUT'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        correct_answer = ([('PER', 1), ('OUT', 1)], [('PER', 2), ('OUT', 1)], [('OUT', 2), ('PER', 1)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
-def evaluate(true_seqs, pred_seqs, padding_label, verbose=True):
-    correct_chunks, true_chunks, pred_chunks, correct_counts, true_counts, pred_counts = count_chunks(true_seqs, pred_seqs, padding_label)
-    result = get_result(correct_chunks, true_chunks, pred_chunks, correct_counts, true_counts, pred_counts, verbose=verbose)
-    return result
-
-
-def evaluate_conll_file(fileIterator):
-    true_seqs, pred_seqs = [], []
-    
-    for line in fileIterator:
-        cols = line.strip().split()
-        # each non-empty line must contain >= 3 columns
-        if not cols:
-            true_seqs.append('OUT')
-            pred_seqs.append('OUT')
-        elif len(cols) < 3:
-            raise IOError("conlleval: too few columns in line %s\n" % line)
-        else:
-            # extract tags from last 2 columns
-            true_seqs.append(cols[-2])
-            pred_seqs.append(cols[-1])
-    return evaluate(true_seqs, pred_seqs)
+    def test_count_chanks9(self):
+        true_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        pred_seq = [self.tag2idx['B-PER'], self.tag2idx['OUT'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
+        correct_answer = ([('OUT', 1)], [('PER', 2), ('OUT', 1)], [('PER', 1), ('OUT', 2)])
+        res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        # print(res)
+        self.assertEqual(res, correct_answer)
 
 if __name__ == '__main__':
-    """
-    usage:     conlleval < file
-    """
-    evaluate_conll_file(sys.stdin)
+    unittest.main()
