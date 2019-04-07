@@ -85,13 +85,13 @@ class ConllEval:
                 pred_chunks[pred_type] += 1
             if true_prefix == 'S' and pred_prefix == 'S' and true_type == pred_type:
                 correct_chunks[true_type] += 1
-        return list(correct_chunks.items()), list(true_chunks.items()), list(pred_chunks.items())
+        return correct_chunks, true_chunks, pred_chunks
 
     @staticmethod
     def get_result(correct_chunks, true_chunks, pred_chunks):
         tp, tn, fp, fn = 0, 0, 0, 0
         chunk_types = set([t for t, _ in true_chunks] + [t for t, _ in pred_chunks])
-        sum_correct_chunks = sum([count for _, count in correct_chunks])
+        sum_correct_chunks = sum([count for _, count in correct_chunks.items()])
         for chunk_type in chunk_types:
             tp += correct_chunks[chunk_type]
             tn += (sum_correct_chunks - correct_chunks[chunk_type])
@@ -118,6 +118,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT'], self.tag2idx['PADDING_LABEL']]
         correct_answer = ([('PER', 1), ('OUT', 1)], [('PER', 1), ('OUT', 2)], [('PER', 1), ('OUT', 1), ('PAD', 1)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -126,6 +127,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['OUT'], self.tag2idx['OUT'], self.tag2idx['PADDING_LABEL']]
         correct_answer = ([('OUT', 1)], [('PER', 1), ('OUT', 2)], [('PER', 1), ('OUT', 2), ('PAD', 1)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -134,6 +136,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['I-PER'], self.tag2idx['E-PER'], self.tag2idx['PADDING_LABEL']]
         correct_answer = ([('PER', 1)], [('PER', 1), ('OUT', 1)], [('PER', 1), ('PAD', 1)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -142,6 +145,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['I-PER'], self.tag2idx['OUT'], self.tag2idx['OUT']]
         correct_answer = ([('OUT', 1)], [('PER', 1), ('OUT', 1)], [('PER', 1), ('OUT', 2)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -150,6 +154,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['OUT'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
         correct_answer = ([('OUT', 1)], [('PER', 1), ('OUT', 1)], [('PER', 1), ('OUT', 2)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -158,6 +163,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
         correct_answer = ([('PER', 2), ('OUT', 1)], [('PER', 2), ('OUT', 1)], [('PER', 2), ('OUT', 1)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -166,6 +172,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['S-PER'], self.tag2idx['OUT'], self.tag2idx['OUT']]
         correct_answer = ([('PER', 1), ('OUT', 1)], [('PER', 2), ('OUT', 1)], [('PER', 2), ('OUT', 2)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -174,6 +181,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['OUT'], self.tag2idx['S-PER'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
         correct_answer = ([('PER', 1), ('OUT', 1)], [('PER', 2), ('OUT', 1)], [('OUT', 2), ('PER', 1)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 
@@ -182,6 +190,7 @@ class TestEvalMethods(unittest.TestCase):
         pred_seq = [self.tag2idx['B-PER'], self.tag2idx['OUT'], self.tag2idx['E-PER'], self.tag2idx['OUT']]
         correct_answer = ([('OUT', 1)], [('PER', 2), ('OUT', 1)], [('PER', 1), ('OUT', 2)])
         res = self.eval.count_chunks(true_seq, pred_seq, self.tag2idx['PADDING_LABEL'])
+        res = tuple(list(chunks.items()) for chunks in res)
         # print(res)
         self.assertEqual(res, correct_answer)
 

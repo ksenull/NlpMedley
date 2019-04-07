@@ -1,0 +1,11 @@
+[
+  "conlleval.py::TestEvalMethods::test_count_chanks2",
+  "conlleval.py::TestEvalMethods::test_count_chanks3",
+  "conlleval.py::TestEvalMethods::test_count_chanks4",
+  "conlleval.py::TestEvalMethods::test_count_chanks5",
+  "conlleval.py::TestEvalMethods::test_count_chanks6",
+  "conlleval.py::TestEvalMethods::test_count_chanks7",
+  "conlleval.py::TestEvalMethods::test_count_chanks8",
+  "conlleval.py::TestEvalMethods::test_count_chanks9",
+  "conlleval.py::TestEvalMethods::test_count_chunks1"
+]
