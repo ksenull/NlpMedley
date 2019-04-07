@@ -90,7 +90,7 @@ class ConllEval:
     @staticmethod
     def get_result(correct_chunks, true_chunks, pred_chunks):
         tp, tn, fp, fn = 0, 0, 0, 0
-        chunk_types = set([t for t, _ in true_chunks] + [t for t, _ in pred_chunks])
+        chunk_types = set([t for t in true_chunks] + [t for t in pred_chunks])
         sum_correct_chunks = sum([count for _, count in correct_chunks.items()])
         for chunk_type in chunk_types:
             tp += correct_chunks[chunk_type]
